@@ -70,7 +70,7 @@ WEBHOOK_URL        = os.getenv("DISCORD_WEBHOOK_URL", "")
 def fetch_ohlcv(timeframe="5m", months=12, save=True):
     import ccxt
     exchange = ccxt.coinbase({"enableRateLimit": True})
-    since    = datetime.utcnow() - timedelta(days=30*months)
+    since    = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30*months)
     since_ms = int(since.timestamp() * 1000)
     all_c    = []
     print(f"Fetching {timeframe} data from Coinbase from {since.date()} ...")
@@ -116,11 +116,30 @@ def load_data(timeframe="5m", refresh=False):
 def fetch_latest(timeframe="5m", n=300):
     import ccxt
     exchange = ccxt.coinbase({"enableRateLimit": True})
-    candles  = exchange.fetch_ohlcv(SYMBOL, timeframe, limit=n)
-    df = pd.DataFrame(candles, columns=["timestamp","open","high","low","close","volume"])
+
+    candles = None
+
+    for i in range(5):
+        try:
+            candles = exchange.fetch_ohlcv(SYMBOL, timeframe, limit=n)
+            break
+        except Exception as e:
+            log.warning(f"Retrying Coinbase fetch ({i+1}/5)...")
+            time.sleep(3)
+
+    if candles is None:
+        log.error("Failed to fetch candles from Coinbase")
+        return None
+
+    df = pd.DataFrame(
+        candles,
+        columns=["timestamp","open","high","low","close","volume"]
+    )
+
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     df.set_index("timestamp", inplace=True)
-    return df.iloc[:-1].astype(float)   # drop unclosed candle
+
+    return df.iloc[:-1].astype(float)  # drop unclosed candle
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,7 +383,7 @@ def load_models(timeframe="5m"):
     return {"lgbm": lgbm, "xgb": xgbm}, fc
 
 
-def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRESH):
+def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRESH, of_features=None):
     if models is None:
         models, fc = load_models(timeframe)
 
@@ -382,6 +401,47 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
     probas = [m.predict_proba(row)[0][1] for m in models.values()]
     p_up   = float(np.mean(probas))
     p_dn   = 1 - p_up
+    
+    # --- AI MODEL FILTER ---
+    if of_features and os.path.exists("btc_model.pkl"):
+        try:
+            import joblib
+            clf = joblib.load("btc_model.pkl")
+            
+            rsi_val = feat["rsi_14"].iloc[-1] if "rsi_14" in feat.columns else 50
+            vol_val = df.iloc[-1]["volume"]
+            buy_val = of_features.get("buy_volume", 0)
+            sell_val = of_features.get("sell_volume", 0)
+            imb_val = of_features.get("imbalance", 0)
+            pres_val = of_features.get("pressure", 0)
+            atr_val = feat["atr_pct"].iloc[-1] if "atr_pct" in feat.columns else 0
+            
+            X_new = pd.DataFrame([{
+                "RSI": rsi_val,
+                "volume": vol_val,
+                "orderflow_buy": buy_val,
+                "orderflow_sell": sell_val,
+                "imbalance": imb_val,
+                "pressure": pres_val,
+                "volatility": atr_val
+            }])
+            
+            ml_pred = clf.predict(X_new)[0]
+            
+            # Increase probability in predicted direction
+            if ml_pred == 1:
+                p_up += 0.05
+                p_dn -= 0.05
+            else:
+                p_dn += 0.05
+                p_up -= 0.05
+                
+            p_up = max(min(p_up, 1.0), 0.0)
+            p_dn = max(min(p_dn, 1.0), 0.0)
+            
+        except Exception as e:
+            print("[AI FILTER ERROR]", e)
+
     conf   = max(p_up, p_dn)
 
     signal = "UP" if p_up > threshold else "DOWN" if p_dn > threshold else "SKIP"
@@ -393,6 +453,9 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
         "current_close": round(df.iloc[-1]["close"], 2),
         "prob_up": round(p_up,4), "prob_down": round(p_dn,4),
         "confidence": round(conf,4), "signal": signal, "emoji": emoji,
+        "rsi": round(feat["rsi_14"].iloc[-1], 2) if "rsi_14" in feat.columns else 0,
+        "volume": df.iloc[-1]["volume"],
+        "volatility": round(feat["atr_pct"].iloc[-1], 4) if "atr_pct" in feat.columns else 0
     }
 
     # Console print
@@ -419,11 +482,11 @@ def save_csv(r):
         w = csv.DictWriter(f, fieldnames=[k for k in r if k!="emoji"])
         if is_new: w.writeheader()
         w.writerow({k:v for k,v in r.items() if k!="emoji"})
-    log.info(f"Logged → {path.name}")
+    log.info(f"Logged -> {path.name}")
 
 
 def send_telegram(r):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT or r["signal"]=="SKIP": return
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT: return
     
     try:
         dt_utc = datetime.fromisoformat(r['timestamp'])
@@ -456,7 +519,7 @@ def send_telegram(r):
             data={"chat_id": TELEGRAM_CHAT, "text": msg, "parse_mode": "Markdown"},
             timeout=10
         )
-        if resp.status_code == 200: log.info("Telegram ✓")
+        if resp.status_code == 200: log.info("Telegram OK")
         else: log.warning(f"Telegram failed: {resp.status_code}")
     except Exception as e:
         log.error(f"Telegram error: {e}")
@@ -490,7 +553,7 @@ def send_webhook(r):
         }]}
     try:
         resp = requests.post(WEBHOOK_URL, json=payload, timeout=10)
-        if resp.status_code in (200,204): log.info("Webhook ✓")
+        if resp.status_code in (200,204): log.info("Webhook OK")
         else: log.warning(f"Webhook failed: {resp.status_code}")
     except Exception as e:
         log.error(f"Webhook error: {e}")
@@ -499,7 +562,6 @@ def send_webhook(r):
 def dispatch(r):
     if not r: return
     save_csv(r)
-    send_telegram(r)
     send_webhook(r)
 
 
