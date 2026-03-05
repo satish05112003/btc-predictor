@@ -14,14 +14,14 @@ def load_models():
         print("ML model loaded for 5m")
     else:
         models["5m"] = None
-        print("No ML model for 5m yet — skipping ML filter")
+        print("No saved model for 5m — running without base models yet.")
 
     if os.path.exists(MODEL_15M):
         models["15m"] = joblib.load(MODEL_15M)
         print("ML model loaded for 15m")
     else:
         models["15m"] = None
-        print("No ML model for 15m yet — skipping ML filter")
+        print("No saved model for 15m — running without base models yet.")
 
 def predict_ml(tf, features):
     model = models.get(tf)

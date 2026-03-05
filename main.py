@@ -243,7 +243,7 @@ def start_ws():
     ws.run_forever()
 
 def run_prediction_engine():
-    start_ws()
+    threading.Thread(target=start_ws, daemon=True).start()
 
 def start_system():
     print("Starting BTC Prediction Arena...")
@@ -270,14 +270,11 @@ def start_system():
     # Continue running prediction engine
     run_prediction_engine()
 
-def main():
-    while True:
-        try:
-            start_system()
-        except Exception as e:
-            print("System crashed:", e)
-            print("Restarting in 5 seconds...")
-            time.sleep(5)
-
 if __name__ == "__main__":
-    main()
+
+    start_system()
+
+    print("System running. Keeping process alive...")
+
+    while True:
+        time.sleep(60)
