@@ -375,7 +375,8 @@ def train(timeframe="5m"):
 def load_models(timeframe="5m"):
     pkls = sorted(MODEL_DIR.glob(f"{timeframe}_lgbm_*.pkl"), reverse=True)
     if not pkls:
-        raise FileNotFoundError(f"No saved model for {timeframe}. Run: python ... train")
+        print(f"No saved model for {timeframe} — running without base models yet.")
+        return None, None
     ts   = "_".join(pkls[0].stem.split("_")[-2:])
     lgbm = joblib.load(MODEL_DIR / f"{timeframe}_lgbm_{ts}.pkl")
     xgbm = joblib.load(MODEL_DIR / f"{timeframe}_xgb_{ts}.pkl")
@@ -395,11 +396,14 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
         feat = build_features(df)
     feat = feat.dropna()
 
-    avail = [c for c in fc if c in feat.columns]
-    row   = feat[avail].iloc[[-1]]
+    if models and fc:
+        avail = [c for c in fc if c in feat.columns]
+        row   = feat[avail].iloc[[-1]]
+        probas = [m.predict_proba(row)[0][1] for m in models.values()]
+        p_up   = float(np.mean(probas))
+    else:
+        p_up   = 0.50
 
-    probas = [m.predict_proba(row)[0][1] for m in models.values()]
-    p_up   = float(np.mean(probas))
     p_dn   = 1 - p_up
     
     # --- AI MODEL FILTER ---
@@ -419,17 +423,15 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
             
             ml_pred = predict_ml(timeframe, X_new)
             
-            if ml_pred is not None:
-                # Increase probability in predicted direction
-                if ml_pred == "UP":
-                    p_up += 0.05
-                    p_dn -= 0.05
-                elif ml_pred == "DOWN":
-                    p_dn += 0.05
-                    p_up -= 0.05
-                    
-                p_up = max(min(p_up, 1.0), 0.0)
-                p_dn = max(min(p_dn, 1.0), 0.0)
+            if ml_pred == "UP":
+                p_up += 0.05
+                p_dn -= 0.05
+            elif ml_pred == "DOWN":
+                p_dn += 0.05
+                p_up -= 0.05
+                
+            p_up = max(min(p_up, 1.0), 0.0)
+            p_dn = max(min(p_dn, 1.0), 0.0)
                 
         except Exception as e:
             print("[AI FILTER ERROR]", e)
