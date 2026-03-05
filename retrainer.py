@@ -25,16 +25,27 @@ def retrain_model():
         print("[RETRAINER]", msg)
         return msg
         
-    X = df[features]
-    y = (df["actual_direction"] == "UP").astype(int)
-    
-    clf = RandomForestClassifier(n_estimators=100, random_state=42)
-    clf.fit(X, y)
-    
-    joblib.dump(clf, "btc_model.pkl")
-    msg = f"Model retrained successfully with {len(df)} samples."
-    print("[RETRAINER]", msg)
-    return msg
+    # Process both timeframes
+    messages = []
+    for tf in ["5m", "15m"]:
+        df_tf = df[df["timeframe"] == tf]
+        if len(df_tf) >= 50:
+            X = df_tf[features]
+            y = (df_tf["actual_direction"] == "UP").astype(int)
+            
+            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+            clf.fit(X, y)
+            
+            joblib.dump(clf, f"btc_model_{tf}.pkl")
+            msg = f"{tf} model retrained successfully with {len(df_tf)} samples."
+            print(f"[RETRAINER] {msg}")
+            messages.append(msg)
+        else:
+            msg = f"Not enough data to retrain {tf} (Need 50, got {len(df_tf)})."
+            print(f"[RETRAINER] {msg}")
+            messages.append(msg)
+            
+    return "\n".join(messages)
 
 def retrain_loop():
     print("[RETRAINER] Loop started. Retraining every 6 hours.")

@@ -123,11 +123,15 @@ Admins:
                         
                 elif text=="/model":
                     if is_admin(user_id):
-                        if os.path.exists("btc_model.pkl"):
-                            sz = os.path.getsize("btc_model.pkl") / 1024
-                            send(chat_id, f"Model File: btc_model.pkl\nSize: {sz:.1f} KB\nStatus: Active")
-                        else:
-                            send(chat_id, "No active btc_model.pkl found. Retrain first.")
+                        msg = ""
+                        for tf in ["5m", "15m"]:
+                            f = f"btc_model_{tf}.pkl"
+                            if os.path.exists(f):
+                                sz = os.path.getsize(f) / 1024
+                                msg += f"Model {tf}: Active ({sz:.1f} KB)\n"
+                            else:
+                                msg += f"Model {tf}: Not found. Retrain needed.\n"
+                        send(chat_id, msg)
                     else:
                         send(chat_id, "Unauthorized.")
 

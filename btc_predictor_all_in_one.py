@@ -403,10 +403,9 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
     p_dn   = 1 - p_up
     
     # --- AI MODEL FILTER ---
-    if of_features and os.path.exists("btc_model.pkl"):
+    if of_features:
         try:
-            import joblib
-            clf = joblib.load("btc_model.pkl")
+            from model_manager import predict_ml
             
             rsi_val = feat["rsi_14"].iloc[-1] if "rsi_14" in feat.columns else 50
             vol_val = df.iloc[-1]["volume"]
@@ -416,29 +415,22 @@ def predict_now(timeframe="5m", models=None, fc=None, threshold=CONFIDENCE_THRES
             pres_val = of_features.get("pressure", 0)
             atr_val = feat["atr_pct"].iloc[-1] if "atr_pct" in feat.columns else 0
             
-            X_new = pd.DataFrame([{
-                "RSI": rsi_val,
-                "volume": vol_val,
-                "orderflow_buy": buy_val,
-                "orderflow_sell": sell_val,
-                "imbalance": imb_val,
-                "pressure": pres_val,
-                "volatility": atr_val
-            }])
+            X_new = [rsi_val, vol_val, buy_val, sell_val, imb_val, pres_val, atr_val]
             
-            ml_pred = clf.predict(X_new)[0]
+            ml_pred = predict_ml(timeframe, X_new)
             
-            # Increase probability in predicted direction
-            if ml_pred == 1:
-                p_up += 0.05
-                p_dn -= 0.05
-            else:
-                p_dn += 0.05
-                p_up -= 0.05
+            if ml_pred is not None:
+                # Increase probability in predicted direction
+                if ml_pred == "UP":
+                    p_up += 0.05
+                    p_dn -= 0.05
+                elif ml_pred == "DOWN":
+                    p_dn += 0.05
+                    p_up -= 0.05
+                    
+                p_up = max(min(p_up, 1.0), 0.0)
+                p_dn = max(min(p_dn, 1.0), 0.0)
                 
-            p_up = max(min(p_up, 1.0), 0.0)
-            p_dn = max(min(p_dn, 1.0), 0.0)
-            
         except Exception as e:
             print("[AI FILTER ERROR]", e)
 

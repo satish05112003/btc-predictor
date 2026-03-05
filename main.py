@@ -15,6 +15,8 @@ from performance_tracker import log_result
 from mistake_logger import log_mistake
 from charts import send_accuracy_chart
 from retrainer import retrain_loop
+from keep_alive import start_keep_alive
+from model_manager import load_models
 
 
 WS_URL = "wss://ws-feed.exchange.coinbase.com"
@@ -243,6 +245,9 @@ def run_prediction_engine():
 
 def start_system():
     print("Starting BTC Prediction Arena...")
+
+    start_keep_alive()
+    load_models()
 
     # Start Telegram listener
     threading.Thread(
