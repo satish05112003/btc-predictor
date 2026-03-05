@@ -182,6 +182,8 @@ def on_message(ws, message):
 
     if data.get("type") == "ticker":
 
+        time.sleep(0.05)
+
         process_trade(
             price=data["price"],
             size=data["last_size"],
@@ -268,5 +270,14 @@ def start_system():
     # Continue running prediction engine
     run_prediction_engine()
 
+def main():
+    while True:
+        try:
+            start_system()
+        except Exception as e:
+            print("System crashed:", e)
+            print("Restarting in 5 seconds...")
+            time.sleep(5)
+
 if __name__ == "__main__":
-    start_system()
+    main()

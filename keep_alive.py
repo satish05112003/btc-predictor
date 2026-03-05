@@ -1,3 +1,4 @@
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -5,17 +6,27 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"BTC Predictor Running")
+
+        if self.path == "/health":
+
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+        else:
+
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"BTC Predictor Running")
 
 
 def run_server():
 
-    server = HTTPServer(("0.0.0.0", 8080), Handler)
+    port = int(os.environ.get("PORT", 8080))
 
-    print("KeepAlive server running on port 8080")
+    server = HTTPServer(("0.0.0.0", port), Handler)
+
+    print(f"KeepAlive server running on port {port}")
 
     server.serve_forever()
 
